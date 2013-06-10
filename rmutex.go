@@ -2,7 +2,6 @@ package rmutex
 
 import (
 	"fmt"
-	_ "sync"
 	"sync/atomic"
 )
 
@@ -23,7 +22,7 @@ func NewToken() Token {
 type Rmutex struct {
 	sema      chan bool
 	owner     Token // current lock owner
-	recursion int32 //current resursion level
+	recursion int32 //current recursion level
 	counter   int32
 }
 
@@ -41,15 +40,14 @@ func (r *Rmutex) Lock(token Token) {
 	}
 	// we are now inside the lock
 	r.owner = token
-	r.recursion++
+	atomic.AddInt32(&r.recursion, 1)
 }
 
 func (r *Rmutex) Unlock(token Token) {
 	if token != r.owner {
 		panic(fmt.Sprintf("you are not the owner(%d): %d!", r.owner, token))
 	}
-	r.recursion--
-	recur := r.recursion
+	recur := atomic.AddInt32(&r.recursion, -1)
 	if recur == 0 {
 		r.owner = 0 //default init value
 	}
@@ -73,6 +71,6 @@ func (r *Rmutex) Trylock(token Token) bool {
 		// we are the first one
 		r.owner = token
 	}
-	r.recursion++
+	atomic.AddInt32(&r.recursion, 1)
 	return true
 }
