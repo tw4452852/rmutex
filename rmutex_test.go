@@ -8,18 +8,13 @@ import (
 type expectState struct {
 	owner     Token
 	recursion int32
-	counter   int32
 }
 
 // a helper function
 func checkState(t *testing.T, r *Rmutex, expect *expectState) {
-	if r.owner != expect.owner {
+	if r.owner != int32(expect.owner) {
 		t.Fatalf("owner %d is not the expected one(%d)\n",
 			r.owner, expect.owner)
-	}
-	if r.counter != expect.counter {
-		t.Fatalf("counter %d is not the expected one(%d)\n",
-			r.counter, expect.counter)
 	}
 	if r.recursion != expect.recursion {
 		t.Fatalf("recursion %d is not the expected one(%d)\n",
@@ -35,21 +30,19 @@ func TestSingle(t *testing.T) {
 	// recursion lock
 	for i := 0; i < level; i++ {
 		lock.Lock(token)
-		if lock.Trylock(token) != true {
-			t.Fatal("not a recursive locked\n")
-		}
+		lock.Lock(token)
 	}
-	checkState(t, lock, &expectState{token, 2 * level, 2 * level})
+	checkState(t, lock, &expectState{token, 2 * level})
 
 	// recursion unlock
 	for i := 0; i < level; i++ {
 		lock.Unlock(token)
 	}
-	checkState(t, lock, &expectState{token, level, level})
+	checkState(t, lock, &expectState{token, level})
 	for i := 0; i < level; i++ {
 		lock.Unlock(token)
 	}
-	checkState(t, lock, &expectState{0, 0, 0})
+	checkState(t, lock, &expectState{0, 0})
 }
 
 func TestMultiply(t *testing.T) {
@@ -65,17 +58,13 @@ func TestMultiply(t *testing.T) {
 			token := NewToken()
 			for i := 0; i < loop; i++ {
 				lock.Lock(token)
-				if lock.Trylock(token) != true {
-					t.Fatal("not recursive locked\n")
-				}
+				lock.Lock(token)
 				// do some work
 				for j := 0; j < loop; j++ {
 					i += 0
 				}
 				lock.Unlock(token)
-				if lock.Trylock(token) != true {
-					t.Fatal("not recursive locked\n")
-				}
+				lock.Lock(token)
 				lock.Unlock(token)
 				lock.Unlock(token)
 			}
@@ -86,5 +75,5 @@ func TestMultiply(t *testing.T) {
 	for i := 0; i < procs; i++ {
 		<-done
 	}
-	checkState(t, lock, &expectState{0, 0, 0})
+	checkState(t, lock, &expectState{0, 0})
 }

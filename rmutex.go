@@ -2,6 +2,7 @@ package rmutex
 
 import (
 	"fmt"
+	"sync"
 	"sync/atomic"
 )
 
@@ -20,57 +21,40 @@ func NewToken() Token {
 }
 
 type Rmutex struct {
-	sema      chan bool
-	owner     Token // current lock owner
+	lock      sync.Mutex
+	owner     int32 // current lock owner
 	recursion int32 //current recursion level
-	counter   int32
 }
 
 func NewRmutex() *Rmutex {
-	return &Rmutex{
-		sema: make(chan bool),
-	}
+	return new(Rmutex)
 }
 
-func (r *Rmutex) Lock(token Token) {
-	if atomic.AddInt32(&r.counter, 1) > 1 {
-		if r.owner != token {
-			<-r.sema
-		}
+func (r *Rmutex) Lock(me Token) {
+	// fast path
+	if atomic.LoadInt32(&r.owner) == int32(me) {
+		r.recursion++
+		return
 	}
+
+	r.lock.Lock()
 	// we are now inside the lock
-	r.owner = token
-	atomic.AddInt32(&r.recursion, 1)
+	atomic.StoreInt32(&r.owner, int32(me))
+	r.recursion = 1
 }
 
-func (r *Rmutex) Unlock(token Token) {
-	if token != r.owner {
-		panic(fmt.Sprintf("you are not the owner(%d): %d!", r.owner, token))
+func (r *Rmutex) Unlock(me Token) {
+	if atomic.LoadInt32(&r.owner) != int32(me) {
+		panic(fmt.Sprintf("you are not the owner(%d): %d!", r.owner, me))
 	}
-	recur := atomic.AddInt32(&r.recursion, -1)
-	if recur == 0 {
-		r.owner = 0 //default init value
-	}
-	if atomic.AddInt32(&r.counter, -1) > 0 {
-		if recur == 0 {
-			r.sema <- true
-		}
-	}
-	// we are outside the lock
-}
 
-func (r *Rmutex) Trylock(token Token) bool {
-	if token == r.owner {
-		// already inside the lock
-		atomic.AddInt32(&r.counter, 1)
-	} else {
-		if !atomic.CompareAndSwapInt32(&r.counter, 0, 1) {
-			// we are not the first one to grasp the lock
-			return false
-		}
-		// we are the first one
-		r.owner = token
+	r.recursion--
+	// fast path
+	if r.recursion != 0 {
+		return
 	}
-	atomic.AddInt32(&r.recursion, 1)
-	return true
+
+	// we are going to release the lock
+	atomic.StoreInt32(&r.owner, 0)
+	r.lock.Unlock()
 }
